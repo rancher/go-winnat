@@ -24,31 +24,9 @@ type Netsh struct {
 }
 
 func (driver *Netsh) Init(config map[string]interface{}) error {
-	var err error
-	adapterName, ok := config[NatAdapterName]
-	if !ok {
-		return errors.New("netsh driver config missing: NatAdapterName")
-	}
-	i, err := net.InterfaceByName(adapterName.(string))
+	_, err := driver.ListPortMapping()
 	if err != nil {
-		return err
-	}
-	logrus.Debugf("interface is :%#v", i)
-	driver.adapterName = `"` + adapterName.(string) + `"`
-	//uninstall
-	cmd := exec.Command("netsh", "routing", "ip", "nat", "uninstall")
-	if err = cmd.Run(); err != nil {
-		return err
-	}
-	//install
-	cmd = exec.Command("netsh", "routing", "ip", "nat", "install")
-	if err = cmd.Run(); err != nil {
-		return err
-	}
-	//add interface to nat driver
-	cmd = exec.Command("netsh", "routing", "ip", "nat", "add", "interface", driver.adapterName, "full")
-	if err = cmd.Run(); err != nil {
-		return err
+		return errors.New("NAT is not setuped")
 	}
 	return nil
 }
