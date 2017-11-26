@@ -72,6 +72,9 @@ func (driver *Netsh) CreatePortMapping(input PortMapping) (PortMapping, error) {
 }
 
 func (driver *Netsh) CreatePortMappings(inputs []PortMapping) error {
+	if len(inputs) == 0 {
+		return nil
+	}
 	cmds := driver.parseAddCmd(inputs[0])
 	for i := 1; i < len(inputs); i++ {
 		//windows command seperator
@@ -176,6 +179,9 @@ func (driver *Netsh) DeletePortMapping(tar PortMapping) error {
 }
 
 func (driver *Netsh) DeletePortMappings(inputs []PortMapping) error {
+	if len(inputs) == 0 {
+		return nil
+	}
 	cmds := driver.parseDeleteCmd(inputs[0])
 	for i := 1; i < len(inputs); i++ {
 		//windows command seperator
