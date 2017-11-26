@@ -2,7 +2,6 @@ package winnat
 
 import (
 	"fmt"
-	"net"
 
 	"github.com/Sirupsen/logrus"
 
@@ -11,11 +10,8 @@ import (
 
 type NatDriver interface {
 	Init(map[string]interface{}) error
-	CreatePortMapping(externalIP net.IP,
-		externalPort uint32,
-		internalIP net.IP,
-		internalPort uint32,
-		Protocol string) (drivers.PortMapping, error)
+	CreatePortMapping(drivers.PortMapping) (drivers.PortMapping, error)
+	CreatePortMappings([]drivers.PortMapping) error
 	ListPortMapping() ([]drivers.PortMapping, error)
 	DeletePortMapping(drivers.PortMapping) error
 	Destory() error

@@ -53,20 +53,8 @@ func (driver *Netsh) Init(config map[string]interface{}) error {
 	}
 	return nil
 }
-func (driver *Netsh) CreatePortMapping(
-	externalIP net.IP,
-	externalPort uint32,
-	internalIP net.IP,
-	internalPort uint32,
-	Protocol string) (PortMapping, error) {
+func (driver *Netsh) CreatePortMapping(input PortMapping) (PortMapping, error) {
 
-	rtn := PortMapping{
-		ExternalIP:   externalIP,
-		ExternalPort: externalPort,
-		InternalIP:   internalIP,
-		InternalPort: internalPort,
-		Protocol:     Protocol,
-	}
 	errbuff := bytes.NewBuffer([]byte{})
 	outbuff := bytes.NewBuffer([]byte{})
 	cmd := exec.Command(
@@ -77,21 +65,49 @@ func (driver *Netsh) CreatePortMapping(
 		"add",
 		"portmapping",
 		driver.adapterName,
-		rtn.Protocol,
-		rtn.ExternalIP.String(),
-		strconv.FormatUint(uint64(rtn.ExternalPort), 10),
-		rtn.InternalIP.String(),
-		strconv.FormatUint(uint64(rtn.InternalPort), 10),
+		input.Protocol,
+		input.ExternalIP.String(),
+		strconv.FormatUint(uint64(input.ExternalPort), 10),
+		input.InternalIP.String(),
+		strconv.FormatUint(uint64(input.InternalPort), 10),
 	)
 	cmd.Stderr = errbuff
 	cmd.Stdout = outbuff
 	err := cmd.Run()
 	if err != nil {
-		println(outbuff.String())
-		println(errbuff.String())
+		logrus.Error(outbuff.String())
+		logrus.Error(errbuff.String())
 	}
-	return rtn, err
+	return input, err
 }
+
+func (driver *Netsh) CreatePortMappings(inputs []PortMapping) error {
+	cmds := driver.parseAddCmd(inputs[0])
+	for i := 1; i < len(inputs); i++ {
+		//windows command seperator
+		cmds = append(cmds, "&&")
+		cmds = append(cmds, driver.parseAddCmd(inputs[i])...)
+	}
+	return exec.Command(cmds[0], cmds[1:]...).Run()
+}
+
+func (driver *Netsh) parseAddCmd(input PortMapping) []string {
+	return []string{
+		"netsh",
+		"routing",
+		"ip",
+		"nat",
+		"add",
+		"portmapping",
+		driver.adapterName,
+		input.Protocol,
+		input.ExternalIP.String(),
+		strconv.FormatUint(uint64(input.ExternalPort), 10),
+		input.InternalIP.String(),
+		strconv.FormatUint(uint64(input.InternalPort), 10),
+	}
+}
+
 func (driver *Netsh) ListPortMapping() ([]PortMapping, error) {
 	outputBuffer := bytes.NewBuffer([]byte{})
 	cmd := exec.Command("netsh", "routing", "ip", "nat", "show", "interface", driver.adapterName)
