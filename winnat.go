@@ -14,6 +14,7 @@ type NatDriver interface {
 	CreatePortMappings([]drivers.PortMapping) error
 	ListPortMapping() ([]drivers.PortMapping, error)
 	DeletePortMapping(drivers.PortMapping) error
+	DeletePortMappings([]drivers.PortMapping) error
 	Destory() error
 }
 

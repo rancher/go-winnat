@@ -24,7 +24,6 @@ type Netsh struct {
 }
 
 func (driver *Netsh) Init(config map[string]interface{}) error {
-
 	var err error
 	adapterName, ok := config[NatAdapterName]
 	if !ok {
@@ -53,8 +52,8 @@ func (driver *Netsh) Init(config map[string]interface{}) error {
 	}
 	return nil
 }
-func (driver *Netsh) CreatePortMapping(input PortMapping) (PortMapping, error) {
 
+func (driver *Netsh) CreatePortMapping(input PortMapping) (PortMapping, error) {
 	errbuff := bytes.NewBuffer([]byte{})
 	outbuff := bytes.NewBuffer([]byte{})
 	cmd := exec.Command(
@@ -168,6 +167,7 @@ func (driver *Netsh) ListPortMapping() ([]PortMapping, error) {
 	}
 	return rtn, nil
 }
+
 func (driver *Netsh) DeletePortMapping(tar PortMapping) error {
 	return exec.Command(
 		"netsh",
@@ -182,6 +182,32 @@ func (driver *Netsh) DeletePortMapping(tar PortMapping) error {
 		strconv.FormatUint(uint64(tar.ExternalPort), 10),
 	).Run()
 }
+
+func (driver *Netsh) DeletePortMappings(inputs []PortMapping) error {
+	cmds := driver.parseDeleteCmd(inputs[0])
+	for i := 1; i < len(inputs); i++ {
+		//windows command seperator
+		cmds = append(cmds, "&&")
+		cmds = append(cmds, driver.parseDeleteCmd(inputs[i])...)
+	}
+	return exec.Command(cmds[0], cmds[1:]...).Run()
+}
+
+func (driver *Netsh) parseDeleteCmd(input PortMapping) []string {
+	return []string{
+		"netsh",
+		"routing",
+		"ip",
+		"nat",
+		"delete",
+		"portmapping",
+		driver.adapterName,
+		input.Protocol,
+		input.ExternalIP.String(),
+		strconv.FormatUint(uint64(input.ExternalPort), 10),
+	}
+}
+
 func (driver *Netsh) Destory() error {
 	return nil
 }
