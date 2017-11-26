@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -16,7 +17,7 @@ import (
 const (
 	NetshDriverName = "Netsh"
 	NatAdapterName  = "NatAdapter"
-	seperator       = "---------------------------\n"
+	seperator       = `--+\n`
 )
 
 type Netsh struct {
@@ -24,6 +25,18 @@ type Netsh struct {
 }
 
 func (driver *Netsh) Init(config map[string]interface{}) error {
+	v, ok := config[NatAdapterName]
+	if !ok {
+		return fmt.Errorf("configuration missing %s", NatAdapterName)
+	}
+	if _, ok = v.(string); ok {
+		driver.adapterName = v.(string)
+	} else if _, ok = v.(net.Interface); ok {
+		driver.adapterName = (v.(net.Interface)).Name
+	} else {
+		return fmt.Errorf("configuration %s value is not valid", NatAdapterName)
+	}
+	driver.adapterName = `"` + driver.adapterName + `"`
 	_, err := driver.ListPortMapping()
 	if err != nil {
 		return errors.New("NAT is not setuped")
@@ -93,7 +106,8 @@ func (driver *Netsh) ListPortMapping() ([]PortMapping, error) {
 		return nil, err
 	}
 	output := strings.Replace(outputBuffer.String(), "\r", "", -1)
-	blocks := strings.Split(output, seperator)
+	rexp := regexp.MustCompile(seperator)
+	blocks := rexp.Split(output, -1)
 	switch len(blocks) {
 	case 1: //when only one element in the array, it doesn't have any nat interface in RRAS service
 		return nil, fmt.Errorf("%s is not a nat interface", driver.adapterName)
