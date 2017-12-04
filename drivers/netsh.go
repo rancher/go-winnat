@@ -21,7 +21,7 @@ const (
 )
 
 type Netsh struct {
-	adapterName string
+	adapterNames []string
 }
 
 func (driver *Netsh) Init(config map[string]interface{}) error {
@@ -30,13 +30,10 @@ func (driver *Netsh) Init(config map[string]interface{}) error {
 		return fmt.Errorf("configuration missing %s", NatAdapterName)
 	}
 	if _, ok = v.(string); ok {
-		driver.adapterName = v.(string)
-	} else if _, ok = v.(net.Interface); ok {
-		driver.adapterName = (v.(net.Interface)).Name
+		driver.adapterNames = strings.Split(v.(string), ",")
 	} else {
 		return fmt.Errorf("configuration %s value is not valid", NatAdapterName)
 	}
-	driver.adapterName = `"` + driver.adapterName + `"`
 	_, err := driver.ListPortMapping()
 	if err != nil {
 		return errors.New("NAT is not setuped")
@@ -45,46 +42,43 @@ func (driver *Netsh) Init(config map[string]interface{}) error {
 }
 
 func (driver *Netsh) CreatePortMapping(input PortMapping) (PortMapping, error) {
-	errbuff := bytes.NewBuffer([]byte{})
-	outbuff := bytes.NewBuffer([]byte{})
-	cmd := exec.Command(
-		"netsh",
-		"routing",
-		"ip",
-		"nat",
-		"add",
-		"portmapping",
-		driver.adapterName,
-		input.Protocol,
-		input.ExternalIP.String(),
-		strconv.FormatUint(uint64(input.ExternalPort), 10),
-		input.InternalIP.String(),
-		strconv.FormatUint(uint64(input.InternalPort), 10),
-	)
-	cmd.Stderr = errbuff
-	cmd.Stdout = outbuff
-	err := cmd.Run()
-	if err != nil {
-		logrus.Error(outbuff.String())
-		logrus.Error(errbuff.String())
-	}
-	return input, err
+	return input, driver.CreatePortMappings([]PortMapping{input})
 }
 
-func (driver *Netsh) CreatePortMappings(inputs []PortMapping) error {
+func (driver *Netsh) CreatePortMappings(inputs []PortMapping) (err error) {
 	if len(inputs) == 0 {
 		return nil
 	}
-	cmds := driver.parseAddCmd(inputs[0])
-	for i := 1; i < len(inputs); i++ {
-		//windows command seperator
-		cmds = append(cmds, "&&")
-		cmds = append(cmds, driver.parseAddCmd(inputs[i])...)
+	for _, adapterName := range driver.adapterNames {
+		for i := 0; i < len(inputs); i++ {
+			errbuff := bytes.NewBuffer([]byte{})
+			outbuff := bytes.NewBuffer([]byte{})
+			//windows command seperator
+			cmds := parseAddCmd(adapterName, inputs[i])
+			cmd := exec.Command(cmds[0], cmds[1:]...)
+			cmd.Stderr = errbuff
+			cmd.Stdout = outbuff
+			if err = cmd.Run(); err != nil {
+				logrus.Error(err)
+			}
+			logrus.Infof("run adding port mapping %s %d %s output is %s",
+				inputs[i].ExternalIP.String(),
+				inputs[i].ExternalPort,
+				adapterName,
+				outbuff.String(),
+			)
+			if outbuff.Len() > 2 {
+				err = errors.New(outbuff.String())
+			}
+		}
 	}
-	return exec.Command(cmds[0], cmds[1:]...).Run()
+	return err
 }
 
-func (driver *Netsh) parseAddCmd(input PortMapping) []string {
+func parseAddCmd(adapterName string, input PortMapping) (rtn []string) {
+	defer func() {
+		logrus.Infof("%v", rtn)
+	}()
 	return []string{
 		"netsh",
 		"routing",
@@ -92,7 +86,7 @@ func (driver *Netsh) parseAddCmd(input PortMapping) []string {
 		"nat",
 		"add",
 		"portmapping",
-		driver.adapterName,
+		adapterName,
 		input.Protocol,
 		input.ExternalIP.String(),
 		strconv.FormatUint(uint64(input.ExternalPort), 10),
@@ -103,7 +97,7 @@ func (driver *Netsh) parseAddCmd(input PortMapping) []string {
 
 func (driver *Netsh) ListPortMapping() ([]PortMapping, error) {
 	outputBuffer := bytes.NewBuffer([]byte{})
-	cmd := exec.Command("netsh", "routing", "ip", "nat", "show", "interface", driver.adapterName)
+	cmd := exec.Command("netsh", "routing", "ip", "nat", "show", "interface", driver.adapterNames[0])
 	cmd.Stdout = outputBuffer
 	if err := cmd.Run(); err != nil {
 		return nil, err
@@ -113,7 +107,7 @@ func (driver *Netsh) ListPortMapping() ([]PortMapping, error) {
 	blocks := rexp.Split(output, -1)
 	switch len(blocks) {
 	case 1: //when only one element in the array, it doesn't have any nat interface in RRAS service
-		return nil, fmt.Errorf("%s is not a nat interface", driver.adapterName)
+		return nil, fmt.Errorf("%s is not a nat interface", driver.adapterNames[0])
 	case 2: //when there are two element in the array, there is nothing in the PortMapping list
 		return []PortMapping{}, nil
 	case 3: //there are some port mapping rules in this interface
@@ -164,34 +158,44 @@ func (driver *Netsh) ListPortMapping() ([]PortMapping, error) {
 }
 
 func (driver *Netsh) DeletePortMapping(tar PortMapping) error {
-	return exec.Command(
-		"netsh",
-		"routing",
-		"ip",
-		"nat",
-		"delete",
-		"portmapping",
-		driver.adapterName,
-		tar.Protocol,
-		tar.ExternalIP.String(),
-		strconv.FormatUint(uint64(tar.ExternalPort), 10),
-	).Run()
+	return driver.DeletePortMappings([]PortMapping{tar})
 }
 
-func (driver *Netsh) DeletePortMappings(inputs []PortMapping) error {
+func (driver *Netsh) DeletePortMappings(inputs []PortMapping) (err error) {
 	if len(inputs) == 0 {
 		return nil
 	}
-	cmds := driver.parseDeleteCmd(inputs[0])
-	for i := 1; i < len(inputs); i++ {
-		//windows command seperator
-		cmds = append(cmds, "&&")
-		cmds = append(cmds, driver.parseDeleteCmd(inputs[i])...)
+	for _, adapterName := range driver.adapterNames {
+		for i := 0; i < len(inputs); i++ {
+			errbuff := bytes.NewBuffer([]byte{})
+			outbuff := bytes.NewBuffer([]byte{})
+			//windows command seperator
+			cmds := parseDeleteCmd(adapterName, inputs[i])
+			cmd := exec.Command(cmds[0], cmds[1:]...)
+			cmd.Stderr = errbuff
+			cmd.Stdout = outbuff
+			if err = cmd.Run(); err != nil {
+				logrus.Error(err)
+			}
+			logrus.Infof("run deleting port mapping %s %d %s output is %s",
+				inputs[i].ExternalIP.String(),
+				inputs[i].ExternalPort,
+				adapterName,
+				outbuff.String(),
+			)
+			//outbuff return \r\n when success
+			if outbuff.Len() > 2 {
+				err = errors.New(outbuff.String())
+			}
+		}
 	}
-	return exec.Command(cmds[0], cmds[1:]...).Run()
+	return err
 }
 
-func (driver *Netsh) parseDeleteCmd(input PortMapping) []string {
+func parseDeleteCmd(adapterName string, input PortMapping) (rtn []string) {
+	defer func() {
+		logrus.Debug("%v", rtn)
+	}()
 	return []string{
 		"netsh",
 		"routing",
@@ -199,7 +203,7 @@ func (driver *Netsh) parseDeleteCmd(input PortMapping) []string {
 		"nat",
 		"delete",
 		"portmapping",
-		driver.adapterName,
+		adapterName,
 		input.Protocol,
 		input.ExternalIP.String(),
 		strconv.FormatUint(uint64(input.ExternalPort), 10),
