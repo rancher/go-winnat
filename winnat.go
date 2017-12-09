@@ -5,7 +5,7 @@ import (
 
 	"github.com/Sirupsen/logrus"
 
-	"github.com/orangedeng/go-winnat/drivers"
+	"github.com/rancher/go-winnat/drivers"
 )
 
 type NatDriver interface {
